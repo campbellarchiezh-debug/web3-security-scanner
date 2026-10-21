@@ -1,0 +1,6 @@
+{
+  "base_eth": "error: HTTP Error 403: Forbidden",
+  "solana_sol": 0.0,
+  "bitcoin_btc": 0.0,
+  "stellar_balances": "unfunded/error: HTTP Error 404: Not Found"
+}
