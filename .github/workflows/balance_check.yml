@@ -35,9 +35,9 @@ jobs:
           # 1. Base / EVM
           try:
               req = urllib.request.Request(
-                  'https://mainnet.base.org',
+                  'https://base.llamarpc.com',
                   data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_getBalance', 'params': ['0xef5766253e2d92e530e301ac22dcb8de78e89c55', 'latest']}).encode(),
-                  headers={'Content-Type': 'application/json'}
+                  headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
               )
               with urllib.request.urlopen(req, timeout=10) as r:
                   val = int(json.loads(r.read().decode()).get('result', '0x0'), 16) / 1e18
