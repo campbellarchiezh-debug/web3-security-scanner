@@ -1,0 +1,93 @@
+name: Real-Time On-Chain Balance Auditor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+  push:
+    branches:
+      - main
+
+jobs:
+  audit-balances:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Query On-Chain Balances
+        run: |
+          python3 -c "
+          import urllib.request, json
+
+          results = {}
+
+          # 1. Base / EVM
+          try:
+              req = urllib.request.Request(
+                  'https://mainnet.base.org',
+                  data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_getBalance', 'params': ['0xef5766253e2d92e530e301ac22dcb8de78e89c55', 'latest']}).encode(),
+                  headers={'Content-Type': 'application/json'}
+              )
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  val = int(json.loads(r.read().decode()).get('result', '0x0'), 16) / 1e18
+                  results['base_eth'] = val
+                  print(f'✅ Base ETH: {val}')
+          except Exception as e:
+              results['base_eth'] = f'error: {e}'
+              print(f'❌ Base ETH: {e}')
+
+          # 2. Solana
+          try:
+              req = urllib.request.Request(
+                  'https://api.mainnet-beta.solana.com',
+                  data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'getBalance', 'params': ['3HLDkipdKmJKGjbgCD8moo3GyhEY4DWdZ7JAgSpMysHp']}).encode(),
+                  headers={'Content-Type': 'application/json'}
+              )
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  val = json.loads(r.read().decode()).get('result', {}).get('value', 0) / 1e9
+                  results['solana_sol'] = val
+                  print(f'✅ Solana SOL: {val}')
+          except Exception as e:
+              results['solana_sol'] = f'error: {e}'
+              print(f'❌ Solana SOL: {e}')
+
+          # 3. Bitcoin
+          try:
+              req = urllib.request.Request('https://blockstream.info/api/address/bc1pavl0c4wn596jmexty56ret76gnj9jxf7px7w983vmt6akymjgahsjk803e', headers={'User-Agent': 'Mozilla/5.0'})
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  d = json.loads(r.read().decode())
+                  val = (d.get('chain_stats', {}).get('funded_txo_sum', 0) - d.get('chain_stats', {}).get('spent_txo_sum', 0)) / 1e8
+                  results['bitcoin_btc'] = val
+                  print(f'✅ Bitcoin BTC: {val}')
+          except Exception as e:
+              results['bitcoin_btc'] = f'error: {e}'
+              print(f'❌ Bitcoin BTC: {e}')
+
+          # 4. Stellar
+          try:
+              req = urllib.request.Request('https://horizon.stellar.org/accounts/GBS2F7RTMYO53E33JGTO32HR3IQ75RI7RDMQX5C3KROZQIJ5IXOMI2WA', headers={'User-Agent': 'Mozilla/5.0'})
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  d = json.loads(r.read().decode())
+                  results['stellar_balances'] = d.get('balances', [])
+                  print(f'✅ Stellar Balances: {d.get("balances", [])}')
+          except Exception as e:
+              results['stellar_balances'] = f'unfunded/error: {e}'
+              print(f'ℹ️ Stellar Account: {e}')
+
+          with open('balances.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          "
+
+      - name: Commit Updated Balances
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add balances.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "chore: sync live on-chain balances"
+          git push || echo "No push needed or branch protected"
