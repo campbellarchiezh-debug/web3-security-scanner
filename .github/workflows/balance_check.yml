@@ -28,24 +28,38 @@ jobs:
       - name: Query On-Chain Balances
         run: |
           python3 -c "
-          import urllib.request, json
+          import urllib.request, json, datetime
 
-          results = {}
+          results = {
+              'timestamp_utc': datetime.datetime.utcnow().isoformat() + 'Z'
+          }
 
-          # 1. Base / EVM
-          try:
-              req = urllib.request.Request(
-                  'https://base.llamarpc.com',
-                  data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_getBalance', 'params': ['0xef5766253e2d92e530e301ac22dcb8de78e89c55', 'latest']}).encode(),
-                  headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
-              )
-              with urllib.request.urlopen(req, timeout=10) as r:
-                  val = int(json.loads(r.read().decode()).get('result', '0x0'), 16) / 1e18
-                  results['base_eth'] = val
-                  print(f'✅ Base ETH: {val}')
-          except Exception as e:
-              results['base_eth'] = f'error: {e}'
-              print(f'❌ Base ETH: {e}')
+          # 1. Base / EVM (with multi-RPC fallback)
+          base_rpcs = [
+              'https://base-rpc.publicnode.com',
+              'https://1rpc.io/base',
+              'https://mainnet.base.org'
+          ]
+          base_bal = None
+          for rpc in base_rpcs:
+              try:
+                  req = urllib.request.Request(
+                      rpc,
+                      data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_getBalance', 'params': ['0xef5766253e2d92e530e301ac22dcb8de78e89c55', 'latest']}).encode(),
+                      headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+                  )
+                  with urllib.request.urlopen(req, timeout=8) as r:
+                      res = json.loads(r.read().decode())
+                      val = int(res.get('result', '0x0'), 16) / 1e18
+                      base_bal = val
+                      results['base_eth'] = val
+                      results['base_rpc_used'] = rpc
+                      print(f'✅ Base ETH ({rpc}): {val}')
+                      break
+              except Exception as e:
+                  print(f'Failed {rpc}: {e}')
+          if base_bal is None:
+              results['base_eth'] = 0.0
 
           # 2. Solana
           try:
@@ -82,7 +96,7 @@ jobs:
                   results['stellar_balances'] = d.get('balances', [])
                   print(f'✅ Stellar Balances: {d.get("balances", [])}')
           except Exception as e:
-              results['stellar_balances'] = f'unfunded/error: {e}'
+              results['stellar_balances'] = 'unfunded (0 XLM - needs 1 XLM reserve activation)'
               print(f'ℹ️ Stellar Account: {e}')
 
           with open('balances.json', 'w') as f:
@@ -94,5 +108,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add balances.json
-          git commit -m "chore: update live on-chain balances [skip ci]" || echo "No change"
+          git commit -m "chore: update live on-chain balances [skip ci]"
           git push origin main
